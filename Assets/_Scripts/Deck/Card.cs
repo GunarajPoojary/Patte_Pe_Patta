@@ -4,11 +4,7 @@ namespace Patte_pe_patta.Deck
 {
     public class Card : MonoBehaviour
     {
-        public CardType Type { get; private set; }
-
-        public Card(CardType type) => Type = type;
-
-        public override string ToString() => $"{Type}";
+        [field: SerializeField] public CardType Type { get; private set; }
 
         public override bool Equals(object obj)
         {
