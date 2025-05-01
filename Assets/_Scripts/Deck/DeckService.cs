@@ -2,6 +2,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using DG.Tweening;
 using UnityEngine.Splines;
+using System.Threading.Tasks;
+using System.Threading;
+using System;
 
 namespace Patte_pe_patta.Deck
 {
@@ -27,9 +30,7 @@ namespace Patte_pe_patta.Deck
         private List<Card> _deck;
         private Transform _deckContainer;
         private bool _isPlayingShuffleAnim = false;
-        private bool _isPlayingGatherAnim = false;
-        private bool _hasShuffled = false;
-        private bool _hasGathered = true;
+        private bool _hasShuffled;
         private bool _canDistribute = false;
         private bool _hasDistributed = false;
 
@@ -40,11 +41,13 @@ namespace Patte_pe_patta.Deck
 
         private List<Card> _playerOneHandCards = new();
         private List<Card> _playerTwoHandCards = new();
+        private CancellationTokenSource _distributeCts;
 
         public DeckService(DeckDataSO deck)
         {
             _deck = new List<Card>();
             _cardIndex = 0;
+            _hasDistributed = false;
 
             CreateDeck(deck);
         }
@@ -55,16 +58,16 @@ namespace Patte_pe_patta.Deck
 
             for (int i = 0; i < 13; i++)
             {
-                var clubCard = Object.Instantiate(deckDataSO.ClubCards[i], _deckContainer);
+                var clubCard = UnityEngine.Object.Instantiate(deckDataSO.ClubCards[i], _deckContainer);
                 _deck.Add(clubCard);
 
-                var diamondCard = Object.Instantiate(deckDataSO.DiamondCards[i], _deckContainer);
+                var diamondCard = UnityEngine.Object.Instantiate(deckDataSO.DiamondCards[i], _deckContainer);
                 _deck.Add(diamondCard);
 
-                var heartCard = Object.Instantiate(deckDataSO.HeartCards[i], _deckContainer);
+                var heartCard = UnityEngine.Object.Instantiate(deckDataSO.HeartCards[i], _deckContainer);
                 _deck.Add(heartCard);
 
-                var spadeCard = Object.Instantiate(deckDataSO.SpadeCards[i], _deckContainer);
+                var spadeCard = UnityEngine.Object.Instantiate(deckDataSO.SpadeCards[i], _deckContainer);
                 _deck.Add(spadeCard);
             }
 
@@ -73,17 +76,13 @@ namespace Patte_pe_patta.Deck
 
         public void ShuffleCards()
         {
-            if (_isPlayingShuffleAnim || _isPlayingGatherAnim || !_hasGathered || _hasDistributed) return;
+            if (_isPlayingShuffleAnim || _hasDistributed || _hasShuffled || _deck == null) return;
 
-            if (_deck == null)
-            {
-                Debug.LogError("Deck Serivce has not been initialized");
-                return;
-            }
+            PlayShuffleAnim();
 
             for (int i = _deck.Count - 1; i >= 0; i--)
             {
-                int j = Random.Range(0, _deck.Count);
+                int j = UnityEngine.Random.Range(0, _deck.Count);
                 (_deck[i], _deck[j]) = (_deck[j], _deck[i]);
             }
 
@@ -92,8 +91,6 @@ namespace Patte_pe_patta.Deck
                 _deck[i].transform.SetSiblingIndex(i);
                 Debug.Log(_deck[i].name);
             }
-
-            PlayShuffleAnim();
         }
 
         private void PlayShuffleAnim()
@@ -122,20 +119,11 @@ namespace Patte_pe_patta.Deck
                         .SetEase(Ease.InCubic));
             }
 
-            shuffleSequence.OnComplete(() =>
-            {
-                _isPlayingShuffleAnim = false;
-                _hasShuffled = true;
-                _hasGathered = false;
-            });
+            shuffleSequence.OnComplete(() => GatherCards());
         }
 
-        public void GatherCards()
+        private void GatherCards()
         {
-            if (_isPlayingShuffleAnim || _isPlayingGatherAnim || !_hasShuffled || _hasDistributed) return;
-
-            _isPlayingGatherAnim = true;
-
             Sequence gatherSeq = DOTween.Sequence();
 
             for (int i = 0; i < _deck.Count; i++)
@@ -151,33 +139,69 @@ namespace Patte_pe_patta.Deck
             gatherSeq.OnComplete(() =>
             {
                 _canDistribute = true;
-                _isPlayingGatherAnim = false;
-                _hasShuffled = false;
-                _hasGathered = true;
+                _isPlayingShuffleAnim = false;
+                _hasShuffled = true;
             });
         }
 
-        public void DealNextCard(int maxHandSize, SplineContainer p1SplineContainer, SplineContainer p2SplineContainer)
+        public async void DistributeCards(SplineContainer p1SplineContainer, SplineContainer p2SplineContainer)
         {
-            if (!_hasGathered || !_canDistribute || _cardIndex >= _deck.Count) return;
-
-            if (_cardIndex % 2 == 0)
+            // Cancel any ongoing distribution
+            if (_distributeCts != null)
             {
-                if (_playerOneHandCards.Count >= maxHandSize) return;
-
-                _playerOneHandCards.Add(_deck[_cardIndex]);
-                UpdateCardPosition(maxHandSize, p1SplineContainer, _playerOneHandCards);
-            }
-            else
-            {
-                if (_playerTwoHandCards.Count >= maxHandSize) return;
-
-                _playerTwoHandCards.Add(_deck[_cardIndex]);
-                UpdateCardPosition(maxHandSize, p2SplineContainer, _playerTwoHandCards);
+                _distributeCts.Cancel();
+                _distributeCts.Dispose();
             }
 
-            _cardIndex++;
+            _distributeCts = new CancellationTokenSource();
+            try
+            {
+                await DistributeCardsAsync(p1SplineContainer, p2SplineContainer, _distributeCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug.Log("Card distribution was canceled.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error distributing cards: {ex.Message}");
+            }
+        }
+
+        private async Task DistributeCardsAsync(SplineContainer p1SplineContainer, SplineContainer p2SplineContainer, CancellationToken cancellationToken)
+        {
+            int maxHandSize = 32;
+
+            for (int i = 0; i < maxHandSize * 2; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!_canDistribute || _cardIndex >= _deck.Count) return;
+
+                if (_cardIndex % 2 == 0)
+                {
+                    if (_playerOneHandCards.Count >= maxHandSize) return;
+
+                    _playerOneHandCards.Add(_deck[_cardIndex]);
+                    UpdateCardPosition(maxHandSize, p1SplineContainer, _playerOneHandCards);
+                }
+                else
+                {
+                    if (_playerTwoHandCards.Count >= maxHandSize) return;
+
+                    _playerTwoHandCards.Add(_deck[_cardIndex]);
+                    UpdateCardPosition(maxHandSize, p2SplineContainer, _playerTwoHandCards);
+                }
+
+                _cardIndex++;
+
+                await Task.Delay(50, cancellationToken); // 50ms delay (equivalent to 0.05f seconds in coroutine)
+            }
+
             _hasDistributed = true;
+            _canDistribute = false;
+            KillAnim();
+            Debug.Log("Card distribution complete!");
         }
 
         public void UpdateCardPosition(int maxHandSize, SplineContainer splineContainer, List<Card> handCards)
@@ -197,6 +221,7 @@ namespace Patte_pe_patta.Deck
                 Vector3 up = spline.EvaluateUpVector(p);
 
                 Quaternion rotation = Quaternion.LookRotation(up, Vector3.Cross(up, forward).normalized);
+
                 handCards[i].transform.DOMove(splinePos, 0.25f);
                 handCards[i].transform.DORotateQuaternion(rotation, 0.25f);
                 handCards[i].UpdateSortingOrders(i);
@@ -210,7 +235,14 @@ namespace Patte_pe_patta.Deck
             _playerOneHandCards.Clear();
             _playerTwoHandCards.Clear();
             _cardIndex = 0;
-            // _deckState = DeckState.Idle;
+
+            // Cancel any ongoing distribution
+            if (_distributeCts != null)
+            {
+                _distributeCts.Cancel();
+                _distributeCts.Dispose();
+                _distributeCts = null;
+            }
         }
     }
 }
