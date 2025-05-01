@@ -215,3 +215,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Type>k__BackingField: 2
+  _renderers:
+  - {fileID: 8111878481282269050}
+  - {fileID: 220255580448604728}

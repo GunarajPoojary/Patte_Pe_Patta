@@ -47,6 +47,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Type>k__BackingField: 7
+  _renderers:
+  - {fileID: 2946087349095768092}
+  - {fileID: 7271882800225755668}
 --- !u!1 &5503572984244786154
 GameObject:
   m_ObjectHideFlags: 0

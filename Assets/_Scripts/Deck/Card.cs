@@ -4,15 +4,18 @@ namespace Patte_pe_patta.Deck
 {
     public class Card : MonoBehaviour
     {
+        private SpriteRenderer[] _renderers;
+
         [field: SerializeField] public CardType Type { get; private set; }
 
-        public override bool Equals(object obj)
-        {
-            if (obj is Card otherCard)
-                return Type == otherCard.Type;
-            return false;
-        }
+        private void Awake() => _renderers = GetComponentsInChildren<SpriteRenderer>();
 
-        public override int GetHashCode() => Type.GetHashCode();
+        public void UpdateSortingOrders(int sortOrder)
+        {
+            if (_renderers == null) return;
+
+            for (int i = 0; i < _renderers.Length; i++)
+                _renderers[i].sortingOrder = sortOrder - i;
+        }
     }
 }

@@ -1,7 +1,11 @@
 {
     "name": "PattePePatta",
     "rootNamespace": "Patte_pe_patta",
-    "references": [],
+    "references": [
+        "GUID:6055be8ebefd69e48b49212b09b47b2f",
+        "GUID:21d1eb854b91ade49bc69a263d12bee2",
+        "GUID:d8b63aba1907145bea998dd612889d6b"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

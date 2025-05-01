@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using DG.Tweening;
+using UnityEngine.Splines;
 
 namespace Patte_pe_patta.Deck
 {
@@ -25,20 +26,25 @@ namespace Patte_pe_patta.Deck
     {
         private List<Card> _deck;
         private Transform _deckContainer;
-        private int _shuffleCount;
-        private int _maxShuffleCount = 3;
-        private bool _isShuffling = false;
-        private bool _isGathering = false;
+        private bool _isPlayingShuffleAnim = false;
+        private bool _isPlayingGatherAnim = false;
+        private bool _hasShuffled = false;
+        private bool _hasGathered = true;
+        private bool _canDistribute = false;
+        private bool _hasDistributed = false;
 
         private float _delayPerCard = 0.01f;
-        private float _moveDistance = 0.5f;
+        private float _moveDistance = 0.8f;
         private float _moveDuration = 0.5f;
+        private int _cardIndex;
+
+        private List<Card> _playerOneHandCards = new();
+        private List<Card> _playerTwoHandCards = new();
 
         public DeckService(DeckDataSO deck)
         {
             _deck = new List<Card>();
-
-            _shuffleCount = 0;
+            _cardIndex = 0;
 
             CreateDeck(deck);
         }
@@ -67,15 +73,11 @@ namespace Patte_pe_patta.Deck
 
         public void ShuffleCards()
         {
+            if (_isPlayingShuffleAnim || _isPlayingGatherAnim || !_hasGathered || _hasDistributed) return;
+
             if (_deck == null)
             {
                 Debug.LogError("Deck Serivce has not been initialized");
-                return;
-            }
-
-            if (_shuffleCount == _maxShuffleCount)
-            {
-                Debug.Log("You've reache max shuffle count");
                 return;
             }
 
@@ -92,15 +94,11 @@ namespace Patte_pe_patta.Deck
             }
 
             PlayShuffleAnim();
-
-            _shuffleCount++;
         }
 
         private void PlayShuffleAnim()
         {
-            if (_isShuffling || _isGathering) return;
-
-            _isShuffling = true;
+            _isPlayingShuffleAnim = true;
 
             int half = _deck.Count / 2;
 
@@ -124,21 +122,19 @@ namespace Patte_pe_patta.Deck
                         .SetEase(Ease.InCubic));
             }
 
-            shuffleSequence.OnComplete(() => _isShuffling = false);
+            shuffleSequence.OnComplete(() =>
+            {
+                _isPlayingShuffleAnim = false;
+                _hasShuffled = true;
+                _hasGathered = false;
+            });
         }
 
         public void GatherCards()
         {
-            if (_isShuffling || _isGathering) return;
+            if (_isPlayingShuffleAnim || _isPlayingGatherAnim || !_hasShuffled || _hasDistributed) return;
 
-            if (_shuffleCount == 0)
-            {
-                Debug.Log("You haven't shuffled the deck");
-                return;
-            }
-            _isGathering = true;
-
-            _shuffleCount = 0;
+            _isPlayingGatherAnim = true;
 
             Sequence gatherSeq = DOTween.Sequence();
 
@@ -152,14 +148,69 @@ namespace Patte_pe_patta.Deck
                     .SetEase(Ease.InCubic));
             }
 
-            gatherSeq.OnComplete(() => _isGathering = false);
+            gatherSeq.OnComplete(() =>
+            {
+                _canDistribute = true;
+                _isPlayingGatherAnim = false;
+                _hasShuffled = false;
+                _hasGathered = true;
+            });
         }
 
-        public void DistributeCards()
+        public void DealNextCard(int maxHandSize, SplineContainer p1SplineContainer, SplineContainer p2SplineContainer)
         {
+            if (!_hasGathered || !_canDistribute || _cardIndex >= _deck.Count) return;
 
+            if (_cardIndex % 2 == 0)
+            {
+                if (_playerOneHandCards.Count >= maxHandSize) return;
+
+                _playerOneHandCards.Add(_deck[_cardIndex]);
+                UpdateCardPosition(maxHandSize, p1SplineContainer, _playerOneHandCards);
+            }
+            else
+            {
+                if (_playerTwoHandCards.Count >= maxHandSize) return;
+
+                _playerTwoHandCards.Add(_deck[_cardIndex]);
+                UpdateCardPosition(maxHandSize, p2SplineContainer, _playerTwoHandCards);
+            }
+
+            _cardIndex++;
+            _hasDistributed = true;
+        }
+
+        public void UpdateCardPosition(int maxHandSize, SplineContainer splineContainer, List<Card> handCards)
+        {
+            if (handCards.Count == 0) return;
+
+            float cardSpacing = 1f / maxHandSize;
+            float firstCardPosition = 0.5f - (handCards.Count - 1) * cardSpacing / 2;
+            Spline spline = splineContainer.Spline;
+
+            for (int i = 0; i < handCards.Count; i++)
+            {
+                float p = firstCardPosition + i * cardSpacing;
+
+                Vector3 splinePos = spline.EvaluatePosition(p);
+                Vector3 forward = spline.EvaluateTangent(p);
+                Vector3 up = spline.EvaluateUpVector(p);
+
+                Quaternion rotation = Quaternion.LookRotation(up, Vector3.Cross(up, forward).normalized);
+                handCards[i].transform.DOMove(splinePos, 0.25f);
+                handCards[i].transform.DORotateQuaternion(rotation, 0.25f);
+                handCards[i].UpdateSortingOrders(i);
+            }
         }
 
         public void KillAnim() => DOTween.KillAll();
+
+        public void ResetDeck()
+        {
+            _playerOneHandCards.Clear();
+            _playerTwoHandCards.Clear();
+            _cardIndex = 0;
+            // _deckState = DeckState.Idle;
+        }
     }
 }
