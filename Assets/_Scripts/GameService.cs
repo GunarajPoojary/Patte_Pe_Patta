@@ -23,5 +23,7 @@ namespace Patte_pe_patta
         }
 
         public void Shuffle() => DeckService.ShuffleCards();
+
+        public void Gather() => DeckService.GatherCards();
     }
 }
